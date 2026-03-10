@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>HLRP Alert Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root {
+  --bg:        #080c14;
+  --surf1:     #0e1420;
+  --surf2:     #141c2e;
+  --surf3:     #1a2438;
+  --border:    #1e2d45;
+  --border2:   #243450;
+  --text:      #dde6f5;
+  --muted:     #4e6280;
+  --muted2:    #7b95b8;
+
+  /* Severity palette — each is unique & clear */
+  --t1:        #ff3b5c;   /* bright red        – Tier 1         */
+  --t1-bg:     rgba(255,59,92,0.13);
+  --t1-border: rgba(255,59,92,0.35);
+
+  --t1f:       #ff6b00;   /* deep orange       – T1 Failed INI  */
+  --t1f-bg:    rgba(255,107,0,0.13);
+  --t1f-border:rgba(255,107,0,0.35);
+
+  --t2:        #ffaa00;   /* amber             – Tier 2         */
+  --t2-bg:     rgba(255,170,0,0.13);
+  --t2-border: rgba(255,170,0,0.35);
+
+  --t3:        #ffe033;   /* yellow            – Tier 3         */
+  --t3-bg:     rgba(255,224,51,0.10);
+  --t3-border: rgba(255,224,51,0.30);
+
+  --memp:      #a78bfa;   /* violet            – MEMP-T3        */
+  --memp-bg:   rgba(167,139,250,0.13);
+  --memp-border:rgba(167,139,250,0.35);
+
+  --unk:       #3d5a80;   /* steel blue        – NaN / unknown  */
+  --unk-bg:    rgba(61,90,128,0.25);
+  --unk-border:rgba(61,90,128,0.50);
+
+  --accent:    #38bdf8;
+  --green:     #34d399;
+}
+
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min-height:100vh;overflow-x:hidden;}
+
+/* ── Upload screen ── */
+#uploadScreen{
+  position:fixed;inset:0;background:var(--bg);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  z-index:999;gap:0;
+}
+.upload-hero{text-align:center;margin-bottom:40px;}
+.upload-hero h1{font-size:34px;font-weight:800;letter-spacing:-0.5px;margin-bottom:8px;}
+.upload-hero h1 span{color:var(--accent);}
+.upload-hero p{color:var(--muted2);font-size:15px;}
+.drop-card{
+  width:460px;background:var(--surf1);border:2px dashed var(--border2);
+  border-radius:20px;padding:52px 32px;text-align:center;cursor:pointer;
+  transition:all 0.2s;position:relative;
+}
+.drop-card:hover,.drop-card.drag{border-color:var(--accent);background:rgba(56,189,248,0.05);}
+.drop-icon{font-size:52px;margin-bottom:16px;filter:drop-shadow(0 0 20px rgba(56,189,248,0.4));}
+.drop-card h2{font-size:17px;font-weight:700;margin-bottom:6px;}
+.drop-card p{color:var(--muted2);font-size:13px;}
+.drop-card input{position:absolute;inset:0;opacity:0;cursor:pointer;}
+.sev-legend{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:36px;max-width:500px;}
+.leg-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted2);}
+.leg-dot{width:10px;height:10px;border-radius:50%;}
+
+/* ── App shell ── */
+#appShell{display:none;flex-direction:column;height:100vh;}
+
+/* topbar */
+.topbar{
+  height:60px;background:var(--surf1);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;padding:0 28px;
+  flex-shrink:0;position:sticky;top:0;z-index:50;
+}
+.topbar-left{display:flex;align-items:center;gap:12px;}
+.logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--accent),#0ea5e9);
+  display:flex;align-items:center;justify-content:center;font-size:17px;}
+.app-title{font-size:16px;font-weight:800;letter-spacing:-0.2px;}
+.app-title span{color:var(--accent);}
+.chip{background:var(--surf2);border:1px solid var(--border);padding:4px 12px;border-radius:20px;
+  font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent);}
+.reupload-btn{
+  background:none;border:1px solid var(--border2);color:var(--muted2);
+  padding:6px 14px;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:12px;
+  font-weight:600;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;gap:6px;
+}
+.reupload-btn:hover{border-color:var(--accent);color:var(--accent);}
+
+/* layout */
+.layout{display:grid;grid-template-columns:240px 1fr;flex:1;overflow:hidden;}
+
+/* sidebar */
+.sidebar{
+  background:var(--surf1);border-right:1px solid var(--border);
+  overflow-y:auto;padding:20px 0;flex-shrink:0;
+}
+.sidebar-label{font-size:10px;font-weight:700;letter-spacing:2px;color:var(--muted);
+  padding:0 18px 8px;text-transform:uppercase;}
+.grp-btn{
+  width:100%;background:none;border:none;padding:9px 18px;cursor:pointer;
+  display:flex;align-items:center;justify-content:space-between;
+  border-left:3px solid transparent;transition:all 0.15s;color:var(--text);
+}
+.grp-btn:hover{background:var(--surf2);}
+.grp-btn.active{background:rgba(56,189,248,0.07);border-left-color:var(--accent);}
+.grp-left{display:flex;align-items:center;gap:9px;}
+.grp-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.grp-name{font-size:13px;font-weight:600;}
+.grp-btn.active .grp-name{color:var(--accent);}
+.grp-cnt{
+  font-family:'JetBrains Mono',monospace;font-size:10px;
+  background:var(--surf3);padding:2px 7px;border-radius:8px;color:var(--muted2);
+}
+.grp-btn.active .grp-cnt{background:rgba(56,189,248,0.15);color:var(--accent);}
+
+/* main */
+.main-area{overflow-y:auto;padding:24px 28px;display:flex;flex-direction:column;gap:22px;}
+
+/* stat cards */
+.stat-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;}
+.stat-card{
+  background:var(--surf1);border:1px solid var(--border);border-radius:12px;
+  padding:16px 18px;position:relative;overflow:hidden;
+}
+.stat-card::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;}
+.stat-card.s-total::after{background:var(--accent);}
+.stat-card.s-t1::after{background:var(--t1);}
+.stat-card.s-t1f::after{background:var(--t1f);}
+.stat-card.s-t2::after{background:var(--t2);}
+.stat-card.s-t3::after{background:var(--t3);}
+.stat-card.s-memp::after{background:var(--memp);}
+.stat-lbl{font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted2);margin-bottom:8px;}
+.stat-val{font-family:'JetBrains Mono',monospace;font-size:26px;font-weight:700;line-height:1;}
+.stat-card.s-total .stat-val{color:var(--accent);}
+.stat-card.s-t1    .stat-val{color:var(--t1);}
+.stat-card.s-t1f   .stat-val{color:var(--t1f);}
+.stat-card.s-t2    .stat-val{color:var(--t2);}
+.stat-card.s-t3    .stat-val{color:var(--t3);}
+.stat-card.s-memp  .stat-val{color:var(--memp);}
+.stat-sub{font-size:11px;color:var(--muted);margin-top:5px;}
+
+/* charts */
+.chart-row{display:grid;grid-template-columns:1.6fr 1fr;gap:16px;}
+.chart-card{background:var(--surf1);border:1px solid var(--border);border-radius:12px;padding:20px;}
+.card-title{font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
+  color:var(--muted2);margin-bottom:16px;}
+.chart-wrap{height:210px;position:relative;}
+
+/* toolbar */
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+.search-wrap{position:relative;flex:1;min-width:200px;}
+.search-wrap svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--muted);}
+.search-input{
+  width:100%;background:var(--surf2);border:1px solid var(--border);
+  color:var(--text);padding:9px 12px 9px 34px;border-radius:9px;
+  font-family:'DM Sans',sans-serif;font-size:13px;outline:none;transition:border-color 0.2s;
+}
+.search-input:focus{border-color:var(--accent);}
+.search-input::placeholder{color:var(--muted);}
+.filter-select{
+  background:var(--surf2);border:1px solid var(--border);color:var(--text);
+  padding:9px 12px;border-radius:9px;font-family:'DM Sans',sans-serif;font-size:13px;
+  cursor:pointer;outline:none;min-width:150px;
+}
+.results-count{font-size:12px;color:var(--muted);font-family:'JetBrains Mono',monospace;white-space:nowrap;}
+
+/* table panel */
+.table-panel{background:var(--surf1);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+
+/* severity legend strip */
+.sev-strip{
+  display:flex;gap:6px;flex-wrap:wrap;padding:12px 20px;
+  border-bottom:1px solid var(--border);background:var(--surf2);
+}
+.sev-tag{
+  display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:6px;
+  font-size:11px;font-weight:700;cursor:pointer;transition:all 0.15s;border:1px solid transparent;
+}
+.sev-tag.inactive{opacity:0.35;}
+
+/* group header in table */
+.grp-row{
+  padding:10px 20px 8px;border-bottom:1px solid var(--border);
+  background:rgba(0,0,0,0.25);
+  display:flex;align-items:center;gap:10px;
+}
+.grp-row-name{font-size:13px;font-weight:800;}
+.grp-row-cnt{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted2);}
+
+/* subdiv accordion */
+.subdiv-wrap{border-bottom:1px solid var(--border);}
+.subdiv-wrap:last-child{border-bottom:none;}
+.subdiv-hdr{
+  padding:10px 20px;background:var(--surf2);
+  display:flex;align-items:center;justify-content:space-between;
+  cursor:pointer;user-select:none;border-left:3px solid transparent;
+  transition:background 0.15s;
+}
+.subdiv-hdr:hover{background:var(--surf3);}
+.subdiv-hdr.open{border-left-color:var(--t2);}
+.subdiv-left{display:flex;align-items:center;gap:8px;}
+.subdiv-name{font-size:12px;font-weight:700;color:var(--t2);}
+.subdiv-cnt{
+  font-family:'JetBrains Mono',monospace;font-size:10px;
+  background:rgba(255,170,0,0.12);color:var(--t2);
+  padding:2px 8px;border-radius:6px;
+}
+.chevron{color:var(--muted);font-size:11px;transition:transform 0.2s;}
+.chevron.open{transform:rotate(180deg);}
+
+/* message table */
+table{width:100%;border-collapse:collapse;}
+th{
+  text-align:left;padding:9px 20px;font-size:10px;letter-spacing:1.5px;
+  color:var(--muted);text-transform:uppercase;font-weight:700;
+  background:rgba(255,255,255,0.02);border-bottom:1px solid var(--border);
+}
+td{
+  padding:10px 20px;font-size:12px;border-bottom:1px solid rgba(30,45,69,0.6);
+  vertical-align:middle;
+}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:rgba(56,189,248,0.03);}
+.msg-cell{font-family:'JetBrains Mono',monospace;font-size:11px;color:#b8cfe8;
+  max-width:560px;word-break:break-word;line-height:1.5;}
+.sev-badge{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:4px 9px;border-radius:6px;font-size:10px;font-weight:700;
+  letter-spacing:0.4px;white-space:nowrap;border-width:1px;border-style:solid;
+}
+/* badge variants */
+.b-t1  {background:var(--t1-bg);  color:var(--t1);  border-color:var(--t1-border);}
+.b-t1f {background:var(--t1f-bg); color:var(--t1f); border-color:var(--t1f-border);}
+.b-t2  {background:var(--t2-bg);  color:var(--t2);  border-color:var(--t2-border);}
+.b-t3  {background:var(--t3-bg);  color:var(--t3);  border-color:var(--t3-border);}
+.b-memp{background:var(--memp-bg);color:var(--memp);border-color:var(--memp-border);}
+.b-unk {background:var(--unk-bg); color:#8aafd4;    border-color:var(--unk-border);}
+.cnt-pill{
+  font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:var(--green);
+  text-align:center;
+}
+.empty{padding:48px;text-align:center;color:var(--muted);font-size:14px;}
+
+/* scrollbar */
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px;}
+
+@keyframes pop{from{opacity:0;transform:scale(0.97) translateY(6px);}to{opacity:1;transform:none;}}
+.anim{animation:pop 0.25s ease forwards;}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ UPLOAD SCREEN ═══════════════ -->
+<div id="uploadScreen">
+  <div class="upload-hero">
+    <h1>HLRP <span>Alert</span> Dashboard</h1>
+    <p>Upload your monthly report to explore alerts by group, sub-division and severity</p>
+  </div>
+
+  <div class="drop-card" id="dropCard"
+    ondragover="event.preventDefault();this.classList.add('drag')"
+    ondragleave="this.classList.remove('drag')"
+    ondrop="handleDrop(event)">
+    <input type="file" accept=".xlsx" onchange="handleFile(this.files[0])"/>
+    <div class="drop-icon">📊</div>
+    <h2>Drop your HLRP Excel file here</h2>
+    <p>or click to browse &nbsp;·&nbsp; .xlsx format</p>
+  </div>
+
+  <div class="sev-legend">
+    <div class="leg-item"><div class="leg-dot" style="background:var(--t1)"></div> Tier 1 – Critical</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--t1f)"></div> T1 Failed INI</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--t2)"></div> Tier 2 – Warning</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--t3)"></div> Tier 3 – Info</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--memp)"></div> MEMP-T3</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--unk)"></div> Unknown / NaN</div>
+  </div>
+</div>
+
+<!-- ═══════════════ APP SHELL ═══════════════ -->
+<div id="appShell">
+  <div class="topbar">
+    <div class="topbar-left">
+      <div class="logo">⚡</div>
+      <span class="app-title">HLRP <span>Alert</span> Dashboard</span>
+      <div class="chip" id="topChip">0 alerts</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="font-size:12px;color:var(--muted)" id="fileLabel"></span>
+      <button class="reupload-btn" onclick="resetToUpload()">⬆ New Report</button>
+    </div>
+  </div>
+
+  <div class="layout">
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="sidebar-label">Groups</div>
+      <button class="grp-btn active" data-g="ALL" onclick="selectGroup('ALL',this)">
+        <div class="grp-left">
+          <div class="grp-dot" style="background:var(--accent)"></div>
+          <span class="grp-name">All Groups</span>
+        </div>
+        <span class="grp-cnt" id="gc-ALL">0</span>
+      </button>
+      <div id="sidebarGroups"></div>
+    </div>
+
+    <!-- Main -->
+    <div class="main-area" id="mainArea">
+      <!-- Stat cards -->
+      <div class="stat-grid">
+        <div class="stat-card s-total"><div class="stat-lbl">Total</div><div class="stat-val" id="sv-total">0</div><div class="stat-sub" id="sv-grp">All Groups</div></div>
+        <div class="stat-card s-t1">  <div class="stat-lbl">Tier 1</div>  <div class="stat-val" id="sv-t1">0</div>  <div class="stat-sub">Critical</div></div>
+        <div class="stat-card s-t1f"> <div class="stat-lbl">T1 Failed</div><div class="stat-val" id="sv-t1f">0</div> <div class="stat-sub">Failed INI Promote</div></div>
+        <div class="stat-card s-t2">  <div class="stat-lbl">Tier 2</div>  <div class="stat-val" id="sv-t2">0</div>  <div class="stat-sub">Warning</div></div>
+        <div class="stat-card s-t3">  <div class="stat-lbl">Tier 3</div>  <div class="stat-val" id="sv-t3">0</div>  <div class="stat-sub">Info</div></div>
+        <div class="stat-card s-memp"><div class="stat-lbl">MEMP / Other</div><div class="stat-val" id="sv-oth">0</div><div class="stat-sub">MEMP-T3 &amp; Unknown</div></div>
+      </div>
+
+      <!-- Charts -->
+      <div class="chart-row">
+        <div class="chart-card">
+          <div class="card-title">Alerts by Group</div>
+          <div class="chart-wrap"><canvas id="groupChart"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="card-title">Severity Breakdown</div>
+          <div class="chart-wrap"><canvas id="sevChart"></canvas></div>
+        </div>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="toolbar">
+        <div class="search-wrap">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input class="search-input" type="text" placeholder="Search messages…" id="searchInput" oninput="renderTable()"/>
+        </div>
+        <select class="filter-select" id="sevFilter" onchange="renderTable()">
+          <option value="ALL">All Severities</option>
+          <option value="t1">🔴 Tier 1 – Critical</option>
+          <option value="t1f">🟠 T1 Failed INI</option>
+          <option value="t2">🟡 Tier 2 – Warning</option>
+          <option value="t3">🟨 Tier 3 – Info</option>
+          <option value="memp">🟣 MEMP-T3</option>
+          <option value="unk">⚫ Unknown</option>
+        </select>
+        <select class="filter-select" id="subFilter" onchange="renderTable()" style="min-width:180px;">
+          <option value="ALL">All Sub-Divisions</option>
+        </select>
+        <span class="results-count" id="resultsCnt"></span>
+      </div>
+
+      <!-- Severity legend (clickable filter) -->
+      <div class="table-panel">
+        <div class="sev-strip" id="sevStrip">
+          <div class="sev-tag b-t1"   data-sev="t1"   onclick="toggleSevTag(this)"><span>●</span> Tier 1</div>
+          <div class="sev-tag b-t1f"  data-sev="t1f"  onclick="toggleSevTag(this)"><span>●</span> T1 Failed INI</div>
+          <div class="sev-tag b-t2"   data-sev="t2"   onclick="toggleSevTag(this)"><span>●</span> Tier 2</div>
+          <div class="sev-tag b-t3"   data-sev="t3"   onclick="toggleSevTag(this)"><span>●</span> Tier 3</div>
+          <div class="sev-tag b-memp" data-sev="memp" onclick="toggleSevTag(this)"><span>●</span> MEMP-T3</div>
+          <div class="sev-tag b-unk"  data-sev="unk"  onclick="toggleSevTag(this)"><span>●</span> Unknown</div>
+          <span style="margin-left:auto;font-size:11px;color:var(--muted);align-self:center;">click to toggle</span>
+        </div>
+        <div id="tableBody"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Constants ─────────────────────────────────────────────
+const PRIMARY_GROUPS = ['NR','Zabbix','Azure','AWS','EMail','Rundeck','Cron','Sentry','OEM','SSR NEW','SSR','LNS','OCE','EJP','PS','CEC'];
+const GROUP_COLORS = {
+  NR:'#38bdf8',Zabbix:'#a78bfa',Azure:'#3b82f6',AWS:'#f59e0b',
+  EMail:'#34d399',OEM:'#fb923c',Cron:'#67e8f9',EJP:'#f43f5e',
+  Sentry:'#facc15',Other:'#64748b',SSR:'#818cf8',LNS:'#f59e0b',
+  OCE:'#86efac',PS:'#c084fc',CEC:'#fb7185','SSR NEW':'#60a5fa',Rundeck:'#2dd4bf'
+};
+const SEV_KEYS = {
+  t1:'Alert_Tier_1', t1f:'Alert_Tier_1,Failed INI Promote',
+  t2:'Alert_Tier_2', t3:'Alert_Tier_3', memp:'MEMP-T3'
+};
+function gColor(g){return GROUP_COLORS[g]||'#64748b';}
+
+// ── Severity helpers ──────────────────────────────────────
+function sevKey(s){
+  if(!s||s==='nan'||s==='NaN'||s===null) return 'unk';
+  if(s.includes('Failed')) return 't1f';
+  if(s.includes('Tier_1')) return 't1';
+  if(s.includes('Tier_2')) return 't2';
+  if(s.includes('MEMP'))   return 'memp';
+  if(s.includes('Tier_3')) return 't3';
+  return 'unk';
+}
+const SEV_LABEL = {t1:'Tier 1',t1f:'T1 Failed INI',t2:'Tier 2',t3:'Tier 3',memp:'MEMP-T3',unk:'Unknown'};
+const SEV_CLASS = {t1:'b-t1',t1f:'b-t1f',t2:'b-t2',t3:'b-t3',memp:'b-memp',unk:'b-unk'};
+const SEV_CHART_COLOR = {t1:'#ff3b5c',t1f:'#ff6b00',t2:'#ffaa00',t3:'#ffe033',memp:'#a78bfa',unk:'#3d5a80'};
+
+// ── App State ─────────────────────────────────────────────
+let DATA = null;
+let activeGroup = 'ALL';
+let activeSevTags = new Set(['t1','t1f','t2','t3','memp','unk']);
+let gChart = null, sChart = null;
+
+// ── File handling ─────────────────────────────────────────
+function handleDrop(e){
+  e.preventDefault();
+  document.getElementById('dropCard').classList.remove('drag');
+  const f = e.dataTransfer.files[0];
+  if(f) handleFile(f);
+}
+function handleFile(file){
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(e.target.result,{type:'array'});
+      const ws = wb.Sheets['Sheet1'] || wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws,{header:1});
+      buildData(rows);
+      document.getElementById('fileLabel').textContent = file.name;
+      document.getElementById('uploadScreen').style.display = 'none';
+      document.getElementById('appShell').style.display = 'flex';
+    } catch(err){ alert('Could not read file: '+err.message); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+function resetToUpload(){
+  document.getElementById('uploadScreen').style.display = 'flex';
+  document.getElementById('appShell').style.display = 'none';
+}
+
+// ── Build data ────────────────────────────────────────────
+function getGroup(msg){
+  const tags = (msg.match(/\[([^\]]+)\]/g)||[]).map(t=>t.slice(1,-1));
+  for(const t of tags) for(const g of PRIMARY_GROUPS) if(t.toUpperCase()===g.toUpperCase()) return g;
+  return 'Other';
+}
+function getSubDiv(msg,grp){
+  const tags = (msg.match(/\[([^\]]+)\]/g)||[]).map(t=>t.slice(1,-1));
+  for(const t of tags) if(t.toUpperCase()!==grp.toUpperCase()) return t;
+  return '(Direct)';
+}
+function buildData(rows){
+  const dataRows = rows.slice(1).filter(r=>r[0]);
+  const msgMap = {};
+  const grpCnt = {}, grpSub = {};
+  dataRows.forEach(r=>{
+    const msg = String(r[0]||'').trim();
+    const sev = (r[1]===undefined||r[1]===null||String(r[1]).trim()==='')?null:String(r[1]).trim();
+    const grp = getGroup(msg), sub = getSubDiv(msg,grp);
+    const key = `${msg}|||${sev}|||${grp}|||${sub}`;
+    if(!msgMap[key]) msgMap[key]={message:msg,severity:sev,group:grp,subdiv:sub,sevKey:sevKey(sev),count:0};
+    msgMap[key].count++;
+    grpCnt[grp]=(grpCnt[grp]||0)+1;
+    if(!grpSub[grp]) grpSub[grp]={};
+    grpSub[grp][sub]=(grpSub[grp][sub]||0)+1;
+  });
+  DATA = {
+    total: dataRows.length,
+    group_counts: Object.fromEntries(Object.entries(grpCnt).sort(([,a],[,b])=>b-a)),
+    grp_subdiv: grpSub,
+    messages: Object.values(msgMap).sort((a,b)=>b.count-a.count)
+  };
+  activeGroup = 'ALL';
+  activeSevTags = new Set(['t1','t1f','t2','t3','memp','unk']);
+  buildSidebar();
+  buildSubFilter();
+  updateStats();
+  buildCharts();
+  renderTable();
+}
+
+// ── Sidebar ───────────────────────────────────────────────
+function buildSidebar(){
+  document.getElementById('gc-ALL').textContent = DATA.total;
+  document.getElementById('topChip').textContent = DATA.total.toLocaleString()+' alerts';
+  const el = document.getElementById('sidebarGroups');
+  el.innerHTML = '';
+  Object.entries(DATA.group_counts).forEach(([g,c])=>{
+    const b = document.createElement('button');
+    b.className='grp-btn'; b.dataset.g=g;
+    b.onclick=()=>selectGroup(g,b);
+    b.innerHTML=`<div class="grp-left"><div class="grp-dot" style="background:${gColor(g)}"></div><span class="grp-name">${g}</span></div><span class="grp-cnt" id="gc-${g}">${c}</span>`;
+    el.appendChild(b);
+  });
+}
+function selectGroup(g,el){
+  document.querySelectorAll('.grp-btn').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  activeGroup = g;
+  buildSubFilter();
+  updateStats();
+  buildCharts();
+  renderTable();
+}
+
+// ── Sub-division filter dropdown ──────────────────────────
+function buildSubFilter(){
+  const sel = document.getElementById('subFilter');
+  sel.innerHTML = '<option value="ALL">All Sub-Divisions</option>';
+  const subs = activeGroup==='ALL'
+    ? [...new Set(DATA.messages.map(m=>m.subdiv))].sort()
+    : Object.keys(DATA.grp_subdiv[activeGroup]||{}).sort();
+  subs.forEach(s=>{
+    const o = document.createElement('option');
+    o.value=s; o.textContent=s; sel.appendChild(o);
+  });
+}
+
+// ── Stats ─────────────────────────────────────────────────
+function updateStats(){
+  const msgs = activeGroup==='ALL' ? DATA.messages : DATA.messages.filter(m=>m.group===activeGroup);
+  const tot = msgs.reduce((s,m)=>s+m.count,0);
+  const t1  = msgs.filter(m=>m.sevKey==='t1').reduce((s,m)=>s+m.count,0);
+  const t1f = msgs.filter(m=>m.sevKey==='t1f').reduce((s,m)=>s+m.count,0);
+  const t2  = msgs.filter(m=>m.sevKey==='t2').reduce((s,m)=>s+m.count,0);
+  const t3  = msgs.filter(m=>m.sevKey==='t3').reduce((s,m)=>s+m.count,0);
+  const oth = msgs.filter(m=>m.sevKey==='memp'||m.sevKey==='unk').reduce((s,m)=>s+m.count,0);
+  document.getElementById('sv-total').textContent = tot.toLocaleString();
+  document.getElementById('sv-t1').textContent = t1.toLocaleString();
+  document.getElementById('sv-t1f').textContent = t1f.toLocaleString();
+  document.getElementById('sv-t2').textContent = t2.toLocaleString();
+  document.getElementById('sv-t3').textContent = t3.toLocaleString();
+  document.getElementById('sv-oth').textContent = oth.toLocaleString();
+  document.getElementById('sv-grp').textContent = activeGroup==='ALL'?'All Groups':'Group: '+activeGroup;
+}
+
+// ── Charts ────────────────────────────────────────────────
+function buildCharts(){
+  Chart.defaults.color='#4e6280';
+  Chart.defaults.borderColor='#1a2438';
+  if(gChart) gChart.destroy();
+  if(sChart) sChart.destroy();
+
+  // Bar: groups or sub-divs
+  const gData = activeGroup==='ALL'
+    ? DATA.group_counts
+    : Object.fromEntries(Object.entries(DATA.grp_subdiv[activeGroup]||{}).sort(([,a],[,b])=>b-a));
+  const gLabels = Object.keys(gData);
+  const gVals   = Object.values(gData);
+  const gColors = activeGroup==='ALL' ? gLabels.map(gColor) : gLabels.map((_,i)=>`hsl(${190+i*28},65%,55%)`);
+  gChart = new Chart(document.getElementById('groupChart'),{
+    type:'bar',
+    data:{labels:gLabels,datasets:[{data:gVals,backgroundColor:gColors,borderRadius:6,borderSkipped:false}]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+c.raw.toLocaleString()+' alerts'}}},
+      scales:{
+        x:{grid:{display:false},ticks:{font:{family:'JetBrains Mono',size:10},maxRotation:35}},
+        y:{grid:{color:'#141c2e'},ticks:{font:{family:'JetBrains Mono',size:10}}}
+      }
+    }
+  });
+
+  // Donut: severity
+  const msgs = activeGroup==='ALL' ? DATA.messages : DATA.messages.filter(m=>m.group===activeGroup);
+  const sevBuckets = {t1:0,t1f:0,t2:0,t3:0,memp:0,unk:0};
+  msgs.forEach(m=>{ sevBuckets[m.sevKey]=(sevBuckets[m.sevKey]||0)+m.count; });
+  const sLabels=[], sVals=[], sColors=[];
+  Object.entries(sevBuckets).filter(([,v])=>v>0).forEach(([k,v])=>{
+    sLabels.push(SEV_LABEL[k]); sVals.push(v); sColors.push(SEV_CHART_COLOR[k]);
+  });
+  sChart = new Chart(document.getElementById('sevChart'),{
+    type:'doughnut',
+    data:{labels:sLabels,datasets:[{data:sVals,backgroundColor:sColors,borderColor:'#0e1420',borderWidth:3,hoverOffset:8}]},
+    options:{
+      responsive:true,maintainAspectRatio:false,cutout:'62%',
+      plugins:{
+        legend:{position:'right',labels:{font:{family:'JetBrains Mono',size:10},padding:10,boxWidth:10}},
+        tooltip:{callbacks:{label:c=>' '+c.raw.toLocaleString()+' ('+Math.round(c.raw/sVals.reduce((a,b)=>a+b,0)*100)+'%)'}}
+      }
+    }
+  });
+}
+
+// ── Severity tag toggle ───────────────────────────────────
+function toggleSevTag(el){
+  const sev = el.dataset.sev;
+  if(activeSevTags.has(sev)){ activeSevTags.delete(sev); el.classList.add('inactive'); }
+  else { activeSevTags.add(sev); el.classList.remove('inactive'); }
+  // sync dropdown
+  document.getElementById('sevFilter').value='ALL';
+  renderTable();
+}
+
+// ── Table render ──────────────────────────────────────────
+function renderTable(){
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  const sevF   = document.getElementById('sevFilter').value;
+  const subF   = document.getElementById('subFilter').value;
+
+  let msgs = DATA.messages;
+  if(activeGroup!=='ALL') msgs = msgs.filter(m=>m.group===activeGroup);
+  if(subF!=='ALL') msgs = msgs.filter(m=>m.subdiv===subF);
+
+  // severity filter: dropdown takes priority; else use tag set
+  if(sevF!=='ALL'){
+    msgs = msgs.filter(m=>m.sevKey===sevF);
+  } else {
+    msgs = msgs.filter(m=>activeSevTags.has(m.sevKey));
+  }
+  if(search) msgs = msgs.filter(m=>m.message.toLowerCase().includes(search)||m.subdiv.toLowerCase().includes(search)||m.group.toLowerCase().includes(search));
+
+  const totalShown = msgs.reduce((s,m)=>s+m.count,0);
+  document.getElementById('resultsCnt').textContent = msgs.length+' unique · '+totalShown.toLocaleString()+' total';
+
+  const body = document.getElementById('tableBody');
+  if(!msgs.length){ body.innerHTML='<div class="empty">No alerts match your filters</div>'; return; }
+
+  // group by group → subdiv
+  const tree = {};
+  msgs.forEach(m=>{
+    if(!tree[m.group]) tree[m.group]={};
+    if(!tree[m.group][m.subdiv]) tree[m.group][m.subdiv]=[];
+    tree[m.group][m.subdiv].push(m);
+  });
+
+  let html='';
+  Object.entries(tree).forEach(([g,subdivs])=>{
+    const gTotal = Object.values(subdivs).flat().reduce((s,m)=>s+m.count,0);
+    if(activeGroup==='ALL'){
+      html+=`<div class="grp-row">
+        <div class="grp-dot" style="width:10px;height:10px;border-radius:50%;background:${gColor(g)}"></div>
+        <span class="grp-row-name" style="color:${gColor(g)}">[${g}]</span>
+        <span class="grp-row-cnt">${gTotal.toLocaleString()} alerts</span>
+      </div>`;
+    }
+    const sdEntries = Object.entries(subdivs).sort(([,a],[,b])=>b.reduce((s,m)=>s+m.count,0)-a.reduce((s,m)=>s+m.count,0));
+    sdEntries.forEach(([sd,rows])=>{
+      const sdTotal = rows.reduce((s,m)=>s+m.count,0);
+      const bid = 'b'+Math.random().toString(36).slice(2);
+      html+=`<div class="subdiv-wrap">
+        <div class="subdiv-hdr open" onclick="toggleBlock('${bid}',this)">
+          <div class="subdiv-left">
+            <span class="subdiv-name">[${esc(sd)}]</span>
+            <span class="subdiv-cnt">${sdTotal.toLocaleString()} alerts</span>
+          </div>
+          <span class="chevron open">▼</span>
+        </div>
+        <div id="${bid}">
+          <table><thead><tr><th>Message</th><th>Severity</th><th style="text-align:center;width:60px">Count</th></tr></thead><tbody>`;
+      rows.sort((a,b)=>{ const o={t1:0,t1f:1,t2:2,t3:3,memp:4,unk:5}; return (o[a.sevKey]??9)-(o[b.sevKey]??9)||b.count-a.count; })
+        .forEach(m=>{
+          html+=`<tr>
+            <td class="msg-cell">${esc(m.message)}</td>
+            <td><span class="sev-badge ${SEV_CLASS[m.sevKey]}">${SEV_LABEL[m.sevKey]}</span></td>
+            <td class="cnt-pill">${m.count}</td>
+          </tr>`;
+        });
+      html+=`</tbody></table></div></div>`;
+    });
+  });
+  body.innerHTML = html;
+}
+
+function toggleBlock(id,hdr){
+  const el=document.getElementById(id), ch=hdr.querySelector('.chevron');
+  const hide=el.style.display!=='none'&&el.style.display!=='';
+  el.style.display=hide?'none':'';
+  ch.classList.toggle('open',!hide);
+  hdr.classList.toggle('open',!hide);
+}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+</script>
+</body>
+</html>
